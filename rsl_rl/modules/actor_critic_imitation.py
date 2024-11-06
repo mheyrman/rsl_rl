@@ -8,8 +8,53 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
+class ImitationAgent(nn.Module):
+    def __init__(
+        self,
+        num_obs,
+        num_actions,
+        hidden_dims,
+        activation,
+        num_reference_obs=16,
+        encoder_hidden_dims=[12, 10, 8],
+    ):
+        super().__init__()
 
-class ActorCritic(nn.Module):
+        self.num_reference_obs = num_reference_obs
+        activation = get_activation(activation)
+
+        # num_obs = 85, num_reference_obs = 40 encode into 16
+        mlp_input_dim = num_obs - num_reference_obs + encoder_hidden_dims[2]
+
+
+        self.obs_enc = nn.Sequential(
+            nn.Linear(num_reference_obs, encoder_hidden_dims[0]),
+            nn.ReLU(),
+            nn.Linear(encoder_hidden_dims[0], encoder_hidden_dims[1]),
+            nn.ReLU(),
+            nn.Linear(encoder_hidden_dims[1], encoder_hidden_dims[2]),
+        )
+
+        layers = []
+        layers.append(nn.Linear(mlp_input_dim, hidden_dims[0]))
+        layers.append(activation)
+        for layer_index in range(len(hidden_dims)):
+            if layer_index == len(hidden_dims) - 1:
+                layers.append(nn.Linear(hidden_dims[layer_index], num_actions))
+            else:
+                layers.append(nn.Linear(hidden_dims[layer_index], hidden_dims[layer_index + 1]))
+                layers.append(activation)
+        
+        self.policy = nn.Sequential(*layers)
+
+    def forward(self, x):
+        # split reference obs and obs, pass reference obs through encoder, concatenate with obs and pass through policy
+        ref_obs, obs = torch.split(x, [self.num_reference_obs, x.size(1) - self.num_reference_obs], dim=1)
+        ref_obs = self.obs_enc(ref_obs)
+        x = torch.cat([ref_obs, obs], dim=1)
+        return self.policy(x)
+
+class ActorCriticImitation(nn.Module):
     is_recurrent = False
 
     def __init__(
@@ -29,36 +74,10 @@ class ActorCritic(nn.Module):
                 + str([key for key in kwargs.keys()])
             )
         super().__init__()
-        activation = get_activation(activation)
 
-        mlp_input_dim_a = num_actor_obs
-        mlp_input_dim_c = num_critic_obs
-        # Policy
-        actor_layers = []
-        actor_layers.append(nn.Linear(mlp_input_dim_a, actor_hidden_dims[0]))
-        actor_layers.append(activation)
-        for layer_index in range(len(actor_hidden_dims)):
-            if layer_index == len(actor_hidden_dims) - 1:
-                actor_layers.append(nn.Linear(actor_hidden_dims[layer_index], num_actions))
-            else:
-                actor_layers.append(nn.Linear(actor_hidden_dims[layer_index], actor_hidden_dims[layer_index + 1]))
-                actor_layers.append(activation)
-        self.actor = nn.Sequential(*actor_layers)
-        print(num_actor_obs)
-        print(num_critic_obs)
-        print("CHECK HERE")
-
-        # Value function
-        critic_layers = []
-        critic_layers.append(nn.Linear(mlp_input_dim_c, critic_hidden_dims[0]))
-        critic_layers.append(activation)
-        for layer_index in range(len(critic_hidden_dims)):
-            if layer_index == len(critic_hidden_dims) - 1:
-                critic_layers.append(nn.Linear(critic_hidden_dims[layer_index], 1))
-            else:
-                critic_layers.append(nn.Linear(critic_hidden_dims[layer_index], critic_hidden_dims[layer_index + 1]))
-                critic_layers.append(activation)
-        self.critic = nn.Sequential(*critic_layers)
+        self.actor = ImitationAgent(num_actor_obs, num_actions, actor_hidden_dims, activation)
+        self.critic = ImitationAgent(num_critic_obs, 1, critic_hidden_dims, activation)
+        print("IT WORKS")
 
         print(f"Actor MLP: {self.actor}")
         print(f"Critic MLP: {self.critic}")

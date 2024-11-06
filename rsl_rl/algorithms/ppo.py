@@ -7,12 +7,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from rsl_rl.modules import ActorCriticImitation
 from rsl_rl.modules import ActorCritic
 from rsl_rl.storage import RolloutStorage
 
 
 class PPO:
-    actor_critic: ActorCritic
+    actor_critic: ActorCriticImitation
 
     def __init__(
         self,
