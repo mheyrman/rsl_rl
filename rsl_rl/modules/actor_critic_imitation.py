@@ -15,20 +15,20 @@ class ImitationAgent(nn.Module):
         num_actions,
         hidden_dims,
         activation,
-        num_reference_obs=16,
+        num_state_obs=45,
         encoder_hidden_dims=[12, 10, 8],
     ):
         super().__init__()
 
-        self.num_reference_obs = num_reference_obs
+        self.num_reference_obs = num_obs - num_state_obs
         activation = get_activation(activation)
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
-        mlp_input_dim = num_obs - num_reference_obs + encoder_hidden_dims[2]
+        mlp_input_dim = num_obs - self.num_reference_obs + encoder_hidden_dims[2]
 
 
         self.obs_enc = nn.Sequential(
-            nn.Linear(num_reference_obs, encoder_hidden_dims[0]),
+            nn.Linear(self.num_reference_obs, encoder_hidden_dims[0]),
             nn.ReLU(),
             nn.Linear(encoder_hidden_dims[0], encoder_hidden_dims[1]),
             nn.ReLU(),
