@@ -26,7 +26,7 @@ class ImitationAgent(nn.Module):
         activation = get_activation(activation)
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
-        mlp_input_dim = num_state_obs + encoder_hidden_dims[2]
+        mlp_input_dim = num_state_obs + encoder_hidden_dims[-1]
 
 
         # self.obs_enc = nn.Sequential(
@@ -36,7 +36,7 @@ class ImitationAgent(nn.Module):
         #     nn.ReLU(),
         #     nn.Linear(encoder_hidden_dims[1], encoder_hidden_dims[2]),
         # )
-        self.obs_enc = utils.VAEBlock(self.num_reference_obs, encoder_hidden_dims[2])
+        self.obs_enc = utils.VAEBlock(self.num_reference_obs, encoder_hidden_dims[-1], encoder_dims=encoder_hidden_dims)
         # self.obs_enc = utils.GRUBlock(self.num_reference_obs, encoder_hidden_dims[2], 128)
         # self.obs_enc = utils.TransformerEncoder(self.num_reference_obs, encoder_hidden_dims[2])
         # self.obs_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[2])
@@ -91,6 +91,7 @@ class ActorCriticImitation(nn.Module):
         num_actions,
         actor_hidden_dims=[256, 256, 256],
         critic_hidden_dims=[256, 256, 256],
+        encoder_hidden_dims=[128, 64, 32],
         activation="elu",
         init_noise_std=1.0,
         **kwargs,
@@ -102,8 +103,20 @@ class ActorCriticImitation(nn.Module):
             )
         super().__init__()
 
-        self.actor = ImitationAgent(num_actor_obs, num_actions, actor_hidden_dims, activation)
-        self.critic = ImitationAgent(num_critic_obs, 1, critic_hidden_dims, activation)
+        self.actor = ImitationAgent(
+            num_actor_obs,
+            num_actions,
+            actor_hidden_dims,
+            activation,
+            encoder_hidden_dims=encoder_hidden_dims
+        )
+        self.critic = ImitationAgent(
+            num_critic_obs,
+            1,
+            critic_hidden_dims,
+            activation,
+            encoder_hidden_dims=encoder_hidden_dims
+        )
 
         print(f"Actor MLP: {self.actor}")
         print(f"Critic MLP: {self.critic}")
