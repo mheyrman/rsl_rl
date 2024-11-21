@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
+import rsl_rl.modules.utility_modules as utils
+
 class ImitationAgent(nn.Module):
     def __init__(
         self,
@@ -15,8 +17,8 @@ class ImitationAgent(nn.Module):
         num_actions,
         hidden_dims,
         activation,
-        num_state_obs=45,
-        encoder_hidden_dims=[12, 10, 8],
+        num_state_obs=45,                   # number of observations from sim, not reference motions
+        encoder_hidden_dims=[32, 24, 64],
     ):
         super().__init__()
 
@@ -24,17 +26,22 @@ class ImitationAgent(nn.Module):
         activation = get_activation(activation)
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
-        mlp_input_dim = num_obs - self.num_reference_obs + encoder_hidden_dims[2]
+        mlp_input_dim = num_state_obs + encoder_hidden_dims[2]
 
 
-        self.obs_enc = nn.Sequential(
-            nn.Linear(self.num_reference_obs, encoder_hidden_dims[0]),
-            nn.ReLU(),
-            nn.Linear(encoder_hidden_dims[0], encoder_hidden_dims[1]),
-            nn.ReLU(),
-            nn.Linear(encoder_hidden_dims[1], encoder_hidden_dims[2]),
-        )
+        # self.obs_enc = nn.Sequential(
+        #     nn.Linear(self.num_reference_obs, encoder_hidden_dims[0]),
+        #     nn.ReLU(),
+        #     nn.Linear(encoder_hidden_dims[0], encoder_hidden_dims[1]),
+        #     nn.ReLU(),
+        #     nn.Linear(encoder_hidden_dims[1], encoder_hidden_dims[2]),
+        # )
+        self.obs_enc = utils.VAEBlock(self.num_reference_obs, encoder_hidden_dims[2])
+        # self.obs_enc = utils.GRUBlock(self.num_reference_obs, encoder_hidden_dims[2], 128)
+        # self.obs_enc = utils.TransformerEncoder(self.num_reference_obs, encoder_hidden_dims[2])
+        # self.obs_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[2])
 
+        # original
         layers = []
         layers.append(nn.Linear(mlp_input_dim, hidden_dims[0]))
         layers.append(activation)
@@ -44,14 +51,34 @@ class ImitationAgent(nn.Module):
             else:
                 layers.append(nn.Linear(hidden_dims[layer_index], hidden_dims[layer_index + 1]))
                 layers.append(activation)
-        
         self.policy = nn.Sequential(*layers)
+
+        # self.policy = VQVAEBlock(mlp_input_dim, num_actions)
+        # self.policy = VAEBlock(mlp_input_dim, num_actions)
+
+        # # attempt at transformer decoder
+        # self.input_embedding = nn.Sequential(
+        #     nn.Linear(mlp_input_dim, 32),
+        #     nn.Dropout(0.1)
+        # )
+        # self.pos_encoding = nn.Parameter(torch.zeros(32))
+        # self.decoder_blocks = nn.Sequential(
+        #     TransformerBlock(32, 2, 0.1),
+        #     TransformerBlock(32, 2, 0.1),
+        # )
+        # self.output_layer = nn.Linear(32, num_actions)
+
 
     def forward(self, x):
         # split reference obs and obs, pass reference obs through encoder, concatenate with obs and pass through policy
         ref_obs, obs = torch.split(x, [self.num_reference_obs, x.size(1) - self.num_reference_obs], dim=1)
         ref_obs = self.obs_enc(ref_obs)
         x = torch.cat([ref_obs, obs], dim=1)
+
+        # x = self.input_embedding(x)
+        # x = x + self.pos_encoding
+        # x = self.decoder_blocks(x)
+        # return self.output_layer(x)
         return self.policy(x)
 
 class ActorCriticImitation(nn.Module):
@@ -77,7 +104,6 @@ class ActorCriticImitation(nn.Module):
 
         self.actor = ImitationAgent(num_actor_obs, num_actions, actor_hidden_dims, activation)
         self.critic = ImitationAgent(num_critic_obs, 1, critic_hidden_dims, activation)
-        print("IT WORKS")
 
         print(f"Actor MLP: {self.actor}")
         print(f"Critic MLP: {self.critic}")

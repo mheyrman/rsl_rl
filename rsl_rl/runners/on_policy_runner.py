@@ -68,7 +68,7 @@ class OnPolicyRunner:
         # initialize writer
         if self.log_dir is not None and self.writer is None:
             # Launch either Tensorboard or Neptune & Tensorboard summary writer(s), default: Tensorboard.
-            self.logger_type = self.cfg.get("logger", "tensorboard")
+            self.logger_type = self.cfg.get("logger", "wandb")
             self.logger_type = self.logger_type.lower()
 
             if self.logger_type == "neptune":
