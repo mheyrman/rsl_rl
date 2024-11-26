@@ -18,15 +18,16 @@ class ImitationAgent(nn.Module):
         hidden_dims,
         activation,
         num_state_obs=45,                   # number of observations from sim, not reference motions
-        encoder_hidden_dims=[32, 24, 64],
+        encoder_hidden_dims=[32, 24, 16],
     ):
         super().__init__()
 
         self.num_reference_obs = num_obs - num_state_obs
+        self.latent_channels = 8
         activation = get_activation(activation)
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
-        mlp_input_dim = num_state_obs + encoder_hidden_dims[-1]
+        mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels
 
 
         # self.obs_enc = nn.Sequential(
@@ -36,10 +37,12 @@ class ImitationAgent(nn.Module):
         #     nn.ReLU(),
         #     nn.Linear(encoder_hidden_dims[1], encoder_hidden_dims[2]),
         # )
-        self.obs_enc = utils.VAEBlock(self.num_reference_obs, encoder_hidden_dims[-1], encoder_dims=encoder_hidden_dims)
+        # self.pae_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1])
+        self.phase_enc = utils.PeriodicEncoder(self.num_reference_obs, latent_channels=self.latent_channels)
+        self.obs_enc = utils.GaussianEncoderBlock(self.num_reference_obs, encoder_hidden_dims[-1], encoder_dims=encoder_hidden_dims)
         # self.obs_enc = utils.GRUBlock(self.num_reference_obs, encoder_hidden_dims[2], 128)
         # self.obs_enc = utils.TransformerEncoder(self.num_reference_obs, encoder_hidden_dims[2])
-        # self.obs_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[2])
+        # self.obs_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1])
 
         # original
         layers = []
@@ -72,7 +75,10 @@ class ImitationAgent(nn.Module):
     def forward(self, x):
         # split reference obs and obs, pass reference obs through encoder, concatenate with obs and pass through policy
         ref_obs, obs = torch.split(x, [self.num_reference_obs, x.size(1) - self.num_reference_obs], dim=1)
-        ref_obs = self.obs_enc(ref_obs)
+        periodic_out = self.phase_enc(ref_obs)
+        enc_out = self.obs_enc(ref_obs)
+        # sum the two encodings
+        ref_obs = torch.cat([periodic_out, enc_out], dim=1)
         x = torch.cat([ref_obs, obs], dim=1)
 
         # x = self.input_embedding(x)
@@ -91,7 +97,7 @@ class ActorCriticImitation(nn.Module):
         num_actions,
         actor_hidden_dims=[256, 256, 256],
         critic_hidden_dims=[256, 256, 256],
-        encoder_hidden_dims=[128, 64, 32],
+        encoder_hidden_dims=[256, 128, 64],
         activation="elu",
         init_noise_std=1.0,
         **kwargs,

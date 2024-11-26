@@ -113,7 +113,7 @@ class GRUBlock(nn.Module):
         x = self.fc(x)
         return x
 
-class VAEBlock(nn.Module):
+class GaussianEncoderBlock(nn.Module):
     def __init__(
             self,
             input_dims,
@@ -241,14 +241,96 @@ class LN_v2(nn.Module):
         print(self.alpha.shape)
         y = y * self.alpha + self.beta
         return y
+    
+class PeriodicEncoder(nn.Module):
+    def __init__(
+            self,
+            input_dim,
+            horizon=25,
+            latent_channels=6,
+            dt=0.02
+    ):
+        super().__init__()
+        self.input_dim = input_dim
+        self.horizon = horizon
+        self.latent_channels = latent_channels
+        self.dt = dt
+
+        self.args = torch.linspace(-(horizon - 1) * self.dt / 2, (horizon - 1) * self.dt / 2, self.horizon, dtype=torch.float, device='cuda')
+        self.freqs = torch.fft.rfftfreq(horizon, device='cuda')[1:] * horizon
+        self.encoder_shape = int(self.input_dim / 3)
+
+        enc_layers = []
+
+        enc_layers.append(nn.Conv1d(
+            self.input_dim // self.horizon,
+            self.encoder_shape,
+            self.horizon,
+            stride=1,
+            padding=int((self.horizon - 1) / 2),
+            dilation=1,
+            groups=1,
+            bias=True,
+            padding_mode='zeros'
+        ))
+        enc_layers.append(nn.BatchNorm1d(num_features=self.encoder_shape))
+        enc_layers.append(nn.ELU())
+        enc_layers.append(nn.Conv1d(
+            self.encoder_shape,
+            self.latent_channels,
+            self.horizon,
+            stride=1,
+            padding=int((self.horizon - 1) / 2),
+            dilation=1,
+            groups=1,
+            bias=True,
+            padding_mode='zeros'
+        ))
+
+        self.encoder = nn.Sequential(*enc_layers)
+
+        self.phase_encoder = nn.ModuleList()
+        for _ in range(latent_channels):
+            phase_enc_layers = []
+            phase_enc_layers.append(nn.Linear(self.horizon, 2))
+            phase_enc_layers.append(nn.BatchNorm1d(num_features=2))
+            self.phase_encoder.append(nn.Sequential(*phase_enc_layers))
+        self.phase_encoder.train()
+
+    def FFT(self, function, dim=2):
+        rfft = torch.fft.rfft(function, dim=dim)
+        magnitudes = rfft.abs()
+        spectrum = magnitudes[:, :, 1:]
+        power = torch.square(spectrum)
+        freq = torch.sum(self.freqs * power, dim=dim) / torch.sum(power, dim=dim)
+        amp = 2 * torch.sqrt(torch.sum(power, dim=dim)) / self.horizon
+        offset = rfft.real[:, :, 0] / self.horizon
+        
+        return freq, amp, offset
+
+    def forward(self, x):
+        x = x.reshape(x.shape[0], self.input_dim // self.horizon, self.horizon)
+        x = self.encoder(x)
+
+        f, a, b = self.FFT(x, dim=2)
+
+        p = torch.empty((x.shape[0], self.latent_channels), dtype=torch.float32, device=x.device)
+        for i in range(self.latent_channels):
+            v = self.phase_encoder[i](x[:, i, :])
+            p[:, i] = torch.atan2(v[:, 1], v[:, 0]) / (2 * np.pi)
+
+        y = torch.cat([p, f, a, b], dim=-1)
+
+        return y
+        
 
 class PAE(nn.Module):
     def __init__(
             self,
             input_dim,
             output_dim,
-            num_embedding=64,
-            seq_len=5
+            num_embedding=6,
+            seq_len=15
     ):
         super().__init__()
         self.input_dim = input_dim
@@ -259,13 +341,13 @@ class PAE(nn.Module):
 
         self.tpi = nn.Parameter(torch.from_numpy(np.array([2.0*np.pi], dtype=np.float32)), requires_grad=False)
         self.args = nn.Parameter(torch.from_numpy(np.linspace(-self.window/2, self.window/2, self.seq_len, dtype=np.float32)), requires_grad=False)
-        self.freqs = nn.Parameter(torch.fft.rfftfreq(seq_len)[1:] * seq_len / self.window, requires_grad=False) #Remove DC frequency
+        self.freqs = nn.Parameter(torch.fft.rfftfreq(seq_len)[1:] * seq_len / self.window, requires_grad=False)     # take [1:] as the first element is DC
 
-        intermediate_dims = int(input_dim/3)
+        self.intermediate_dims = int(input_dim/3)
 
         self.conv1 = nn.Conv1d(
             input_dim // seq_len,
-            intermediate_dims,
+            self.intermediate_dims,
             seq_len,
             stride=1,
             padding=int((seq_len - 1) / 2),
@@ -274,10 +356,11 @@ class PAE(nn.Module):
             bias=True,
             padding_mode='zeros'
         )
-        self.norm1 = LN_v2(seq_len)
+        # self.norm1 = LN_v2(seq_len)
+        self.norm1 = nn.LayerNorm(self.intermediate_dims * seq_len )
         self.elu1 = nn.ELU()
         self.conv2 = nn.Conv1d(
-            intermediate_dims,
+            self.intermediate_dims,
             num_embedding,
             seq_len,
             stride=1,
@@ -301,7 +384,7 @@ class PAE(nn.Module):
 
         self.deconv1 = nn.Conv1d(
             num_embedding,
-            intermediate_dims,
+            self.intermediate_dims,
             seq_len,
             stride=1,
             padding=int((seq_len - 1) / 2),
@@ -310,10 +393,12 @@ class PAE(nn.Module):
             bias=True,
             padding_mode='zeros'
         )
-        self.denorm1 = LN_v2(seq_len)
+        # self.denorm1 = LN_v2(seq_len)
+        self.denorm1 = nn.LayerNorm(self.intermediate_dims * seq_len)
+
         self.elu2 = nn.ELU()
         self.deconv2 = nn.Conv1d(
-            intermediate_dims,
+            self.intermediate_dims,
             output_dim,
             seq_len,
             stride=1,
@@ -339,6 +424,9 @@ class PAE(nn.Module):
         x = x.reshape(x.shape[0], self.input_dim // self.seq_len, self.seq_len)
 
         x = self.conv1(x)
+        x = x.reshape(x.shape[0], -1)
+        x = self.norm1(x)
+        x = x.reshape(x.shape[0], self.intermediate_dims, self.seq_len)
         x = self.elu1(x)
         x = self.conv2(x)
 
@@ -357,18 +445,21 @@ class PAE(nn.Module):
         b = b.unsqueeze(2)
         # params = [p, f, a, b]
 
-        x = a * torch.sin(self.tpi * (f * self.args + p)) + b
+        # x = a * torch.sin(self.tpi * (f * self.args + p)) + b
 
-        # signal = x
-        # x = x.permute(0, 2, 1)
-        # x, _ = self.rnn_output(x)
-        # x = x.permute(0, 2, 1)
+        # # signal = x
+        # # x = x.permute(0, 2, 1)
+        # # x, _ = self.rnn_output(x)
+        # # x = x.permute(0, 2, 1)
 
-        x = self.deconv1(x)
-        x = self.elu2(x)
-        x = self.deconv2(x)
+        # x = self.deconv1(x)
+        # x = x.reshape(x.shape[0], -1)
+        # x = self.denorm1(x)
+        # x = x.reshape(x.shape[0], self.intermediate_dims, self.seq_len)
+        # x = self.elu2(x)
+        # x = self.deconv2(x)
 
-        x = x[:, :, -1].reshape(x.shape[0], -1)
+        # x = x[:, :, -1].reshape(x.shape[0], -1)
 
         return x
 
