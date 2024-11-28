@@ -246,7 +246,7 @@ class PeriodicEncoder(nn.Module):
     def __init__(
             self,
             input_dim,
-            horizon=25,
+            horizon=15,
             latent_channels=6,
             dt=0.02
     ):

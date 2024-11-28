@@ -19,16 +19,19 @@ class ImitationAgent(nn.Module):
         activation,
         num_state_obs=45,                   # number of observations from sim, not reference motions
         encoder_hidden_dims=[32, 24, 16],
+        latent_channels=6,
     ):
         super().__init__()
 
         self.num_reference_obs = num_obs - num_state_obs
-        self.latent_channels = 8
+        self.horizon = self.num_reference_obs // 16
+        self.latent_channels = latent_channels
+        print("[INFO] Number of latent channels: ", self.latent_channels)
         activation = get_activation(activation)
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
         mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels
-
+        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1]
 
         # self.obs_enc = nn.Sequential(
         #     nn.Linear(self.num_reference_obs, encoder_hidden_dims[0]),
@@ -38,7 +41,7 @@ class ImitationAgent(nn.Module):
         #     nn.Linear(encoder_hidden_dims[1], encoder_hidden_dims[2]),
         # )
         # self.pae_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1])
-        self.phase_enc = utils.PeriodicEncoder(self.num_reference_obs, latent_channels=self.latent_channels)
+        self.phase_enc = utils.PeriodicEncoder(self.num_reference_obs, latent_channels=self.latent_channels, horizon=self.horizon)
         self.obs_enc = utils.GaussianEncoderBlock(self.num_reference_obs, encoder_hidden_dims[-1], encoder_dims=encoder_hidden_dims)
         # self.obs_enc = utils.GRUBlock(self.num_reference_obs, encoder_hidden_dims[2], 128)
         # self.obs_enc = utils.TransformerEncoder(self.num_reference_obs, encoder_hidden_dims[2])
@@ -99,6 +102,7 @@ class ActorCriticImitation(nn.Module):
         critic_hidden_dims=[256, 256, 256],
         encoder_hidden_dims=[256, 128, 64],
         activation="elu",
+        latent_channels=6,
         init_noise_std=1.0,
         **kwargs,
     ):
@@ -114,14 +118,16 @@ class ActorCriticImitation(nn.Module):
             num_actions,
             actor_hidden_dims,
             activation,
-            encoder_hidden_dims=encoder_hidden_dims
+            encoder_hidden_dims=encoder_hidden_dims,
+            latent_channels=latent_channels
         )
         self.critic = ImitationAgent(
             num_critic_obs,
             1,
             critic_hidden_dims,
             activation,
-            encoder_hidden_dims=encoder_hidden_dims
+            encoder_hidden_dims=encoder_hidden_dims,
+            latent_channels=latent_channels
         )
 
         print(f"Actor MLP: {self.actor}")
@@ -164,6 +170,8 @@ class ActorCriticImitation(nn.Module):
         return self.distribution.entropy().sum(dim=-1)
 
     def update_distribution(self, observations):
+        # replace any NaN with 0 to prevent propagation into a crash (I hope)
+        observations[torch.isnan(observations)] = 0
         mean = self.actor(observations)
         self.distribution = Normal(mean, mean * 0.0 + self.std)
 
