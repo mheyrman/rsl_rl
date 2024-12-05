@@ -31,6 +31,9 @@ class ImitationAgent(nn.Module):
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
         mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels
+        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 202
+        # mlp_input_dim = num_state_obs + 496
+
         # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1]
 
         # self.obs_enc = nn.Sequential(
