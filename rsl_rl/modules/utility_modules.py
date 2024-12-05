@@ -242,7 +242,7 @@ class LN_v2(nn.Module):
         y = y * self.alpha + self.beta
         return y
     
-# from pytorch_wavelets import DWTForward
+from pytorch_wavelets import DWTForward
 class PeriodicEncoder(nn.Module):
     def __init__(
             self,
@@ -289,7 +289,7 @@ class PeriodicEncoder(nn.Module):
         ))
 
         self.encoder = nn.Sequential(*enc_layers)
-        # self.dwt = DWTForward(J=2, wave='db3', mode='zero')
+        self.dwt = DWTForward(J=3, wave='db3', mode='zero')
 
         self.phase_encoder = nn.ModuleList()
         for _ in range(latent_channels):
@@ -313,20 +313,20 @@ class PeriodicEncoder(nn.Module):
     def forward(self, x):
         x = x.reshape(x.shape[0], self.input_dim // self.horizon, self.horizon)
         x = self.encoder(x)
-        f, a, b = self.FFT(x, dim=2)
-        p = torch.empty((x.shape[0], self.latent_channels), dtype=torch.float32, device=x.device)
-        for i in range(self.latent_channels):
-            v = self.phase_encoder[i](x[:, i, :])
-            p[:, i] = torch.atan2(v[:, 1], v[:, 0]) / (2 * np.pi)
+        # f, a, b = self.FFT(x, dim=2)
+        # p = torch.empty((x.shape[0], self.latent_channels), dtype=torch.float32, device=x.device)
+        # for i in range(self.latent_channels):
+        #     v = self.phase_encoder[i](x[:, i, :])
+        #     p[:, i] = torch.atan2(v[:, 1], v[:, 0]) / (2 * np.pi)
 
-        y = torch.cat([p, f, a, b], dim=-1)
+        # y = torch.cat([p, f, a, b], dim=-1)
         # print(x.shape)
-        # yl, yh = self.dwt(x.unsqueeze(1))
-        # yl = yl.squeeze(1).reshape(x.shape[0], -1)
-        # y = yl
-        # for i in range(len(yh)):
-        #     y_temp = yh[i].squeeze(1).reshape(x.shape[0], -1)
-        #     y = torch.cat([y, y_temp], dim=-1)
+        yl, yh = self.dwt(x.unsqueeze(1))
+        yl = yl.squeeze(1).reshape(x.shape[0], -1)
+        y = yl
+        for i in range(len(yh)):
+            y_temp = yh[i].squeeze(1).reshape(x.shape[0], -1)
+            y = torch.cat([y, y_temp], dim=-1)
 
         return y
         

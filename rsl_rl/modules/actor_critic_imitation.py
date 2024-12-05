@@ -30,9 +30,9 @@ class ImitationAgent(nn.Module):
         activation = get_activation(activation)
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
-        mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels
+        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels
         # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 202
-        # mlp_input_dim = num_state_obs + 496
+        mlp_input_dim = num_state_obs + 452
 
         # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1]
 
@@ -45,7 +45,7 @@ class ImitationAgent(nn.Module):
         # )
         # self.pae_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1])
         self.phase_enc = utils.PeriodicEncoder(self.num_reference_obs, latent_channels=self.latent_channels, horizon=self.horizon)
-        self.obs_enc = utils.GaussianEncoderBlock(self.num_reference_obs, encoder_hidden_dims[-1], encoder_dims=encoder_hidden_dims)
+        # self.obs_enc = utils.GaussianEncoderBlock(self.num_reference_obs, encoder_hidden_dims[-1], encoder_dims=encoder_hidden_dims)
         # self.obs_enc = utils.GRUBlock(self.num_reference_obs, encoder_hidden_dims[2], 128)
         # self.obs_enc = utils.TransformerEncoder(self.num_reference_obs, encoder_hidden_dims[2])
         # self.obs_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1])
@@ -82,10 +82,10 @@ class ImitationAgent(nn.Module):
         # split reference obs and obs, pass reference obs through encoder, concatenate with obs and pass through policy
         ref_obs, obs = torch.split(x, [self.num_reference_obs, x.size(1) - self.num_reference_obs], dim=1)
         periodic_out = self.phase_enc(ref_obs)
-        enc_out = self.obs_enc(ref_obs)
+        # enc_out = self.obs_enc(ref_obs)
         # sum the two encodings
-        ref_obs = torch.cat([periodic_out, enc_out], dim=1)
-        x = torch.cat([ref_obs, obs], dim=1)
+        # ref_obs = torch.cat([periodic_out, enc_out], dim=1)
+        x = torch.cat([periodic_out, obs], dim=1)
 
         # x = self.input_embedding(x)
         # x = x + self.pos_encoding
