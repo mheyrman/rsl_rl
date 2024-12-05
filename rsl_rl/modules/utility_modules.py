@@ -242,7 +242,7 @@ class LN_v2(nn.Module):
         y = y * self.alpha + self.beta
         return y
     
-from pytorch_wavelets import DWTForward
+# from pytorch_wavelets import DWTForward
 class PeriodicEncoder(nn.Module):
     def __init__(
             self,
@@ -289,7 +289,7 @@ class PeriodicEncoder(nn.Module):
         ))
 
         self.encoder = nn.Sequential(*enc_layers)
-        self.dwt = DWTForward(J=2, wave='db3', mode='zero')
+        # self.dwt = DWTForward(J=2, wave='db3', mode='zero')
 
         self.phase_encoder = nn.ModuleList()
         for _ in range(latent_channels):
