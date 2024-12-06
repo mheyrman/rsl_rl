@@ -9,6 +9,7 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 import rsl_rl.modules.utility_modules as utils
+from pytorch_wavelets import DWTForward
 
 class ImitationAgent(nn.Module):
     def __init__(
@@ -32,7 +33,15 @@ class ImitationAgent(nn.Module):
         # num_obs = 85, num_reference_obs = 40 encode into 16
         # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels
         # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 202
-        mlp_input_dim = num_state_obs + 452
+
+        # check shape
+        dwt_test = DWTForward(J=3, wave='db3', mode='zero')
+        test_in = torch.randn(4096, 1, self.latent_channels, self.horizon)
+        test_out_l, test_out_h = dwt_test(test_in)
+        dwt_size = test_out_l.squeeze(1).reshape(4096, -1).shape[1]
+        for i in range(len(test_out_h)):
+            dwt_size += test_out_h[i].squeeze(1).reshape(4096, -1).shape[1]
+        mlp_input_dim = num_state_obs + dwt_size
 
         # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1]
 

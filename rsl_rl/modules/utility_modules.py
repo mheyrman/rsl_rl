@@ -291,13 +291,13 @@ class PeriodicEncoder(nn.Module):
         self.encoder = nn.Sequential(*enc_layers)
         self.dwt = DWTForward(J=3, wave='db3', mode='zero')
 
-        self.phase_encoder = nn.ModuleList()
-        for _ in range(latent_channels):
-            phase_enc_layers = []
-            phase_enc_layers.append(nn.Linear(self.horizon, 2))
-            phase_enc_layers.append(nn.BatchNorm1d(num_features=2))
-            self.phase_encoder.append(nn.Sequential(*phase_enc_layers))
-        self.phase_encoder.train()
+        # self.phase_encoder = nn.ModuleList()
+        # for _ in range(latent_channels):
+        #     phase_enc_layers = []
+        #     phase_enc_layers.append(nn.Linear(self.horizon, 2))
+        #     phase_enc_layers.append(nn.BatchNorm1d(num_features=2))
+        #     self.phase_encoder.append(nn.Sequential(*phase_enc_layers))
+        # self.phase_encoder.train()
 
     def FFT(self, function, dim=2):
         rfft = torch.fft.rfft(function, dim=dim)
@@ -320,14 +320,13 @@ class PeriodicEncoder(nn.Module):
         #     p[:, i] = torch.atan2(v[:, 1], v[:, 0]) / (2 * np.pi)
 
         # y = torch.cat([p, f, a, b], dim=-1)
-        # print(x.shape)
+
         yl, yh = self.dwt(x.unsqueeze(1))
         yl = yl.squeeze(1).reshape(x.shape[0], -1)
         y = yl
         for i in range(len(yh)):
             y_temp = yh[i].squeeze(1).reshape(x.shape[0], -1)
             y = torch.cat([y, y_temp], dim=-1)
-
         return y
         
 
