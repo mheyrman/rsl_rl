@@ -21,27 +21,29 @@ class ImitationAgent(nn.Module):
         num_state_obs=45,                   # number of observations from sim, not reference motions
         encoder_hidden_dims=[32, 24, 16],
         latent_channels=6,
+        band_outputs=3,
     ):
         super().__init__()
 
         self.num_reference_obs = num_obs - num_state_obs
         self.horizon = self.num_reference_obs // 16
         self.latent_channels = latent_channels
+
         print("[INFO] Number of latent channels: ", self.latent_channels)
         activation = get_activation(activation)
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
-        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels
+        mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels + 16
         # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 202
 
         # check shape
-        dwt_test = DWTForward(J=3, wave='db3', mode='zero')
-        test_in = torch.randn(4096, 1, self.latent_channels, self.horizon)
-        test_out_l, test_out_h = dwt_test(test_in)
-        dwt_size = test_out_l.squeeze(1).reshape(4096, -1).shape[1]
-        for i in range(len(test_out_h)):
-            dwt_size += test_out_h[i].squeeze(1).reshape(4096, -1).shape[1]
-        mlp_input_dim = num_state_obs + dwt_size + encoder_hidden_dims[-1]
+        # dwt_test = DWTForward(J=band_outputs, wave='db3', mode='zero')
+        # test_in = torch.randn(4096, 1, self.latent_channels, self.horizon)
+        # test_out_l, test_out_h = dwt_test(test_in)
+        # dwt_size = test_out_l.squeeze(1).reshape(4096, -1).shape[1]
+        # for i in range(len(test_out_h)):
+        #     dwt_size += test_out_h[i].squeeze(1).reshape(4096, -1).shape[1]
+        # mlp_input_dim = num_state_obs + dwt_size + encoder_hidden_dims[-1]
 
         # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1]
 
@@ -53,7 +55,7 @@ class ImitationAgent(nn.Module):
         #     nn.Linear(encoder_hidden_dims[1], encoder_hidden_dims[2]),
         # )
         # self.pae_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1])
-        self.phase_enc = utils.PeriodicEncoder(self.num_reference_obs, latent_channels=self.latent_channels, horizon=self.horizon)
+        self.phase_enc = utils.PeriodicEncoder(self.num_reference_obs, latent_channels=self.latent_channels, horizon=self.horizon, band_outputs=band_outputs)
         self.obs_enc = utils.GaussianEncoderBlock(self.num_reference_obs, encoder_hidden_dims[-1], encoder_dims=encoder_hidden_dims)
         # self.obs_enc = utils.GRUBlock(self.num_reference_obs, encoder_hidden_dims[2], 128)
         # self.obs_enc = utils.TransformerEncoder(self.num_reference_obs, encoder_hidden_dims[2])
@@ -88,13 +90,25 @@ class ImitationAgent(nn.Module):
 
 
     def forward(self, x):
+        # check for NaN and replace with 1e5
+        if torch.isnan(x).any():
+            print("[INFO] NaN detected in input, replacing with 1e5")
+            x[torch.isnan(x)] = 1e5
+        
+        if torch.isinf(x).any():
+            print("[INFO] Inf detected in input, replacing with 1e5")
+            x[torch.isinf(x)] = 1e5
+
         # split reference obs and obs, pass reference obs through encoder, concatenate with obs and pass through policy
         ref_obs, obs = torch.split(x, [self.num_reference_obs, x.size(1) - self.num_reference_obs], dim=1)
         periodic_out = self.phase_enc(ref_obs)
         enc_out = self.obs_enc(ref_obs)
-        # sum the two encodings
-        ref_obs = torch.cat([periodic_out, enc_out], dim=1)
-        x = torch.cat([ref_obs, obs], dim=1)
+
+        # last ref = last 16 items in ref_obs
+        last_ref = ref_obs[:, -16:]
+        # concat encodings
+        enc_obs = torch.cat([periodic_out, enc_out], dim=1)
+        x = torch.cat([enc_obs, last_ref, obs], dim=1)
 
         # x = self.input_embedding(x)
         # x = x + self.pos_encoding
@@ -115,6 +129,7 @@ class ActorCriticImitation(nn.Module):
         encoder_hidden_dims=[256, 128, 64],
         activation="elu",
         latent_channels=6,
+        band_outputs=3,
         init_noise_std=1.0,
         **kwargs,
     ):
@@ -131,7 +146,8 @@ class ActorCriticImitation(nn.Module):
             actor_hidden_dims,
             activation,
             encoder_hidden_dims=encoder_hidden_dims,
-            latent_channels=latent_channels
+            latent_channels=latent_channels,
+            band_outputs=band_outputs
         )
         self.critic = ImitationAgent(
             num_critic_obs,
@@ -139,7 +155,8 @@ class ActorCriticImitation(nn.Module):
             critic_hidden_dims,
             activation,
             encoder_hidden_dims=encoder_hidden_dims,
-            latent_channels=latent_channels
+            latent_channels=latent_channels,
+            band_outputs=band_outputs
         )
 
         print(f"Actor MLP: {self.actor}")
