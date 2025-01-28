@@ -164,6 +164,16 @@ class PPO:
                 value_losses = (value_batch - returns_batch).pow(2)
                 value_losses_clipped = (value_clipped - returns_batch).pow(2)
                 value_loss = torch.max(value_losses, value_losses_clipped).mean()
+                # print("[Value Loss]")
+                # print("Value batch: ", value_batch)
+                # print("Max value batch: ", value_batch.max())
+                # print("Returns batch: ", returns_batch)
+                # print("Max returns batch: ", returns_batch.max())
+                # print("Value losses: ", value_losses)
+                # print("Max value losses: ", value_losses.max())
+                # print("Value losses clipped: ", value_losses_clipped)
+                # print("Max value losses clipped: ", value_losses_clipped.max())
+                # print("Value loss: ", value_loss)
             else:
                 value_loss = (returns_batch - value_batch).pow(2).mean()
 
@@ -182,5 +192,9 @@ class PPO:
         mean_value_loss /= num_updates
         mean_surrogate_loss /= num_updates
         self.storage.clear()
+        # print("Mean value loss: ", mean_value_loss)
+        # print("Mean surrogate loss: ", mean_surrogate_loss)
+        if mean_value_loss >= 10.0 or mean_surrogate_loss >= 10.0:
+            print("[Trace] Losses are too high, training diverged.")
 
         return mean_value_loss, mean_surrogate_loss

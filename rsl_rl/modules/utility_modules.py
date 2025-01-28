@@ -200,9 +200,9 @@ class TransformerEncoder(nn.Module):
             input_dim,
             output_dim,
             num_layers=2,
-            num_heads=2,
-            sequence_length=3,
-            d_model=1000):
+            num_heads=4,
+            sequence_length=25,
+            d_model=256):
         super().__init__()
 
         self.seq_len = sequence_length
@@ -243,13 +243,89 @@ class LN_v2(nn.Module):
         return y
     
 from pytorch_wavelets import DWTForward
+class WaveletEncoder(nn.Module):
+    def __init__(
+            self,
+            input_dim,
+            horizon=15,
+            latent_channels=2,
+            band_outputs=3,
+            wavelet_type='db3',
+            dt=0.02
+    ):
+        super().__init__()
+        self.input_dim = input_dim
+        self.horizon = horizon
+        self.latent_channels = latent_channels
+        self.dt = dt
+
+        self.args = torch.linspace(-(horizon - 1) * self.dt / 2, (horizon - 1) * self.dt / 2, self.horizon, dtype=torch.float, device='cuda')
+        self.freqs = torch.fft.rfftfreq(horizon, device='cuda')[1:] * horizon
+        self.encoder_shape = int(self.input_dim / self.horizon) # self.horizon or 4 (?)
+
+        enc_layers = []
+
+        enc_layers.append(nn.Conv1d(
+            self.input_dim // self.horizon,
+            self.encoder_shape,
+            self.horizon,
+            stride=1,
+            padding=int((self.horizon - 1) / 2),
+            dilation=1,
+            groups=1,
+            bias=True,
+            padding_mode='zeros'
+        ))
+        enc_layers.append(nn.BatchNorm1d(num_features=self.encoder_shape))
+        enc_layers.append(nn.ELU())
+        enc_layers.append(nn.Conv1d(
+            self.encoder_shape,
+            self.latent_channels,
+            self.horizon,
+            stride=1,
+            padding=int((self.horizon - 1) / 2),
+            dilation=1,
+            groups=1,
+            bias=True,
+            padding_mode='zeros'
+        ))
+        enc_layers.append(nn.BatchNorm1d(num_features=self.latent_channels))
+        enc_layers.append(nn.ELU())
+        enc_layers.append(nn.Conv1d(
+            self.latent_channels,
+            self.latent_channels,
+            self.horizon,
+            stride=1,
+            padding=int((self.horizon - 1) / 2),
+            dilation=1,
+            groups=1,
+            bias=True,
+            padding_mode='zeros'
+        ))
+
+        self.encoder = nn.Sequential(*enc_layers)
+        print("WAVELET_TYPE: ", wavelet_type)
+        self.dwt = DWTForward(J=band_outputs, wave=wavelet_type, mode='zero')
+
+    def forward(self, x):
+        x = x.reshape(x.shape[0], self.input_dim // self.horizon, self.horizon)
+        x = self.encoder(x)
+
+        yl, yh = self.dwt(x.unsqueeze(1))
+        yl = yl.squeeze(1).reshape(x.shape[0], -1)
+        y = yl
+        for i in range(len(yh)):
+            y_temp = yh[i].squeeze(1).reshape(x.shape[0], -1)
+            y = torch.cat([y, y_temp], dim=-1)
+        return y
+
+
 class PeriodicEncoder(nn.Module):
     def __init__(
             self,
             input_dim,
             horizon=15,
             latent_channels=6,
-            band_outputs=3,
             dt=0.02
     ):
         super().__init__()
@@ -290,7 +366,6 @@ class PeriodicEncoder(nn.Module):
         ))
 
         self.encoder = nn.Sequential(*enc_layers)
-        # self.dwt = DWTForward(J=band_outputs, wave='db3', mode='zero')
 
         self.phase_encoder = nn.ModuleList()
         for _ in range(latent_channels):
@@ -322,12 +397,6 @@ class PeriodicEncoder(nn.Module):
 
         y = torch.cat([p, f, a, b], dim=-1)
 
-        # yl, yh = self.dwt(x.unsqueeze(1))
-        # yl = yl.squeeze(1).reshape(x.shape[0], -1)
-        # y = yl
-        # for i in range(len(yh)):
-        #     y_temp = yh[i].squeeze(1).reshape(x.shape[0], -1)
-        #     y = torch.cat([y, y_temp], dim=-1)
         return y
         
 

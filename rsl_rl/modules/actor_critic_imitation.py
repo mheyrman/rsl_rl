@@ -22,6 +22,7 @@ class ImitationAgent(nn.Module):
         encoder_hidden_dims=[32, 24, 16],
         latent_channels=6,
         band_outputs=3,
+        wavelet_type="db3",
     ):
         super().__init__()
 
@@ -29,36 +30,41 @@ class ImitationAgent(nn.Module):
         self.horizon = self.num_reference_obs // 16
         self.latent_channels = latent_channels
 
-        print("[INFO] Number of latent channels: ", self.latent_channels)
         activation = get_activation(activation)
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
-        mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels + 16
-        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 202
+        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels + 16
+        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 16
 
         # check shape
-        # dwt_test = DWTForward(J=band_outputs, wave='db3', mode='zero')
-        # test_in = torch.randn(4096, 1, self.latent_channels, self.horizon)
-        # test_out_l, test_out_h = dwt_test(test_in)
-        # dwt_size = test_out_l.squeeze(1).reshape(4096, -1).shape[1]
-        # for i in range(len(test_out_h)):
-        #     dwt_size += test_out_h[i].squeeze(1).reshape(4096, -1).shape[1]
-        # mlp_input_dim = num_state_obs + dwt_size + encoder_hidden_dims[-1]
+        dwt_test = DWTForward(J=band_outputs, wave=wavelet_type, mode='zero')
+        test_in = torch.randn(4096, 1, self.latent_channels, self.horizon)
+        test_out_l, test_out_h = dwt_test(test_in)
+        dwt_size = test_out_l.squeeze(1).reshape(4096, -1).shape[1]
+        for i in range(len(test_out_h)):
+            dwt_size += test_out_h[i].squeeze(1).reshape(4096, -1).shape[1]
+        print("[INFO] DWT size: ", dwt_size)
+        mlp_input_dim = num_state_obs + dwt_size + encoder_hidden_dims[-1] + 16
 
-        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1]
-
-        # self.obs_enc = nn.Sequential(
-        #     nn.Linear(self.num_reference_obs, encoder_hidden_dims[0]),
-        #     nn.ReLU(),
-        #     nn.Linear(encoder_hidden_dims[0], encoder_hidden_dims[1]),
-        #     nn.ReLU(),
-        #     nn.Linear(encoder_hidden_dims[1], encoder_hidden_dims[2]),
+        self.phase_enc = utils.WaveletEncoder(
+            self.num_reference_obs,
+            latent_channels=self.latent_channels,
+            horizon=self.horizon,
+            band_outputs=band_outputs,
+            wavelet_type=wavelet_type
+        )
+        # self.phase_enc = utils.PeriodicEncoder(
+        #     self.num_reference_obs,
+        #     latent_channels=self.latent_channels,
+        #     horizon=self.horizon,
         # )
-        # self.pae_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1])
-        self.phase_enc = utils.PeriodicEncoder(self.num_reference_obs, latent_channels=self.latent_channels, horizon=self.horizon, band_outputs=band_outputs)
-        self.obs_enc = utils.GaussianEncoderBlock(self.num_reference_obs, encoder_hidden_dims[-1], encoder_dims=encoder_hidden_dims)
+        self.obs_enc = utils.GaussianEncoderBlock(
+            self.num_reference_obs,
+            encoder_hidden_dims[-1],
+            encoder_dims=encoder_hidden_dims
+        )
         # self.obs_enc = utils.GRUBlock(self.num_reference_obs, encoder_hidden_dims[2], 128)
-        # self.obs_enc = utils.TransformerEncoder(self.num_reference_obs, encoder_hidden_dims[2])
+        # self.obs_enc = utils.TransformerEncoder(self.num_reference_obs, encoder_hidden_dims[-1])
         # self.obs_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1])
 
         # original
@@ -130,6 +136,7 @@ class ActorCriticImitation(nn.Module):
         activation="elu",
         latent_channels=6,
         band_outputs=3,
+        wavelet_type="db3",
         init_noise_std=1.0,
         **kwargs,
     ):
@@ -147,7 +154,8 @@ class ActorCriticImitation(nn.Module):
             activation,
             encoder_hidden_dims=encoder_hidden_dims,
             latent_channels=latent_channels,
-            band_outputs=band_outputs
+            band_outputs=band_outputs,
+            wavelet_type=wavelet_type
         )
         self.critic = ImitationAgent(
             num_critic_obs,
@@ -156,7 +164,8 @@ class ActorCriticImitation(nn.Module):
             activation,
             encoder_hidden_dims=encoder_hidden_dims,
             latent_channels=latent_channels,
-            band_outputs=band_outputs
+            band_outputs=band_outputs,
+            wavelet_type=wavelet_type
         )
 
         print(f"Actor MLP: {self.actor}")
@@ -206,6 +215,12 @@ class ActorCriticImitation(nn.Module):
 
     def act(self, observations, **kwargs):
         self.update_distribution(observations)
+        # self.distribution.sample() causes the following error message:
+        # RuntimeError: normal expects all elements of std >= 0.0
+        # print values from self.distribution to debug
+        # if torch.isnan(self.distribution.stddev).any() or (self.distribution.stddev <= 0).any():
+        #     print("[Trace] Invalid values detected in std, replacing with 1e-6")
+        #     self.distribution.stddev[torch.isnan(self.distribution.stddev) | (self.distribution.stddev <= 0)] = 0.5
         return self.distribution.sample()
 
     def get_actions_log_prob(self, actions):
