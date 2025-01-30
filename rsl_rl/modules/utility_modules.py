@@ -280,7 +280,7 @@ class WaveletEncoder(nn.Module):
         enc_layers.append(nn.ELU())
         enc_layers.append(nn.Conv1d(
             self.encoder_shape,
-            self.latent_channels,
+            2 * self.latent_channels,
             self.horizon,
             stride=1,
             padding=int((self.horizon - 1) / 2),
@@ -289,10 +289,10 @@ class WaveletEncoder(nn.Module):
             bias=True,
             padding_mode='zeros'
         ))
-        enc_layers.append(nn.BatchNorm1d(num_features=self.latent_channels))
+        enc_layers.append(nn.BatchNorm1d(num_features=2 * self.latent_channels))
         enc_layers.append(nn.ELU())
         enc_layers.append(nn.Conv1d(
-            self.latent_channels,
+            2 * self.latent_channels,
             self.latent_channels,
             self.horizon,
             stride=1,
