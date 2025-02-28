@@ -33,8 +33,8 @@ class ImitationAgent(nn.Module):
         activation = get_activation(activation)
 
         # num_obs = 85, num_reference_obs = 40 encode into 16
-        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels + 16
         # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 16
+        # mlp_input_dim = num_state_obs + encoder_hidden_dims[-1] + 4 * self.latent_channels + 16
 
         # check shape
         dwt_test = DWTForward(J=band_outputs, wave=wavelet_type, mode='zero')
