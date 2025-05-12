@@ -251,13 +251,16 @@ class WaveletEncoder(nn.Module):
             latent_channels=2,
             band_outputs=3,
             wavelet_type='db3',
-            dt=0.02
+            dt=0.02,
+            # wavelet_output_dim=1,
+            additional_dim=2
     ):
         super().__init__()
         self.input_dim = input_dim
         self.horizon = horizon
         self.latent_channels = latent_channels
         self.dt = dt
+        self.additional_dim = additional_dim
 
         self.args = torch.linspace(-(horizon - 1) * self.dt / 2, (horizon - 1) * self.dt / 2, self.horizon, dtype=torch.float, device='cuda')
         self.freqs = torch.fft.rfftfreq(horizon, device='cuda')[1:] * horizon
@@ -307,6 +310,11 @@ class WaveletEncoder(nn.Module):
         print("WAVELET_TYPE: ", wavelet_type)
         self.dwt = DWTForward(J=band_outputs, wave=wavelet_type, mode='zero')
 
+        # self.output_enc = nn.Linear(
+        #     wavelet_output_dim,
+        #     desired_output_dim
+        # )
+
         # self.whatever = torch.zeros((1000, self.latent_channels, self.horizon), dtype=torch.float32, device='cuda')
         # self.count = 0
 
@@ -323,11 +331,42 @@ class WaveletEncoder(nn.Module):
         #     self.count = 0
 
         yl, yh = self.dwt(x.unsqueeze(1))
-        yl = yl.squeeze(1).reshape(x.shape[0], -1)
+        yl = yl.reshape(x.shape[0], -1)
         y = yl
-        for i in range(len(yh)):
-            y_temp = yh[i].squeeze(1).reshape(x.shape[0], -1)
-            y = torch.cat([y, y_temp], dim=-1)
+
+        # for i in range(len(yh)):            # iterate through decomposition levels
+        #     y_temp = yh[i].squeeze(1).reshape(x.shape[0], -1)
+        #     y = torch.cat([y, y_temp], dim=-1)
+
+        yl_norm = (yl ** 2) / torch.sum(yl ** 2, dim=-1, keepdim=True)
+        if self.additional_dim == 1.0:
+            y = -torch.sum(yl_norm * torch.log2(yl_norm + 1e-10), dim=-1, keepdim=True)
+        else:
+            y = 1 / (self.additional_dim - 1) * (1 - torch.sum(yl_norm ** self.additional_dim, dim=-1, keepdim=True)) # Tsallis Entropy
+        for i in range(len(yh)):            # iterate through decomposition levels
+            for j in range(yh[i].shape[2]):    # iterate through LH, HL, HH
+                y_temp = yh[i][:, : j, ...].reshape(x.shape[0], -1)
+                y_temp_norm = (y_temp ** 2) / torch.sum(y_temp ** 2, dim=-1, keepdim=True)
+                if self.additional_dim == 1.0:  # Shannon Entropy
+                    y_temp = -torch.sum(y_temp_norm * torch.log2(y_temp_norm + 1e-10), dim=-1, keepdim=True) # Shannon Entropy
+                else:                           # Tsallis Entropy   
+                    q = self.additional_dim
+                    y_temp = 1 / (q - 1) * (1 - torch.sum(y_temp_norm ** q, dim=-1, keepdim=True)) # Tsallis Entropy
+                y = torch.cat([y, y_temp], dim=-1)
+            
+            # y_temp = yh[i].squeeze(1).reshape(x.shape[0], -1)
+            # # # newish
+            # # y_temp_norm = (y_temp ** 2) / torch.sum(y_temp ** 2, dim=-1, keepdim=True)
+            # # y_temp = -torch.sum(y_temp_norm * torch.log2(y_temp_norm + 1e-10), dim=-1, keepdim=True)
+            # # y = torch.cat([y, y_temp], dim=-1)
+
+            # y_temp_norm = (y_temp ** 2) / torch.sum(y_temp ** 2, dim=-1, keepdim=True)
+            # y_temp = 1 / (self.additional_dim - 1) * (1 - torch.sum(y_temp_norm ** self.additional_dim, dim=-1, keepdim=True)) # Tsallis Entropy
+            # y = torch.cat([y, y_temp], dim=-1)
+
+            # old:
+            # y_temp = yh[i].squeeze(1).reshape(x.shape[0], -1)
+            # y = torch.cat([y, y_temp], dim=-1)
         return y
 
 
@@ -545,21 +584,21 @@ class PAE(nn.Module):
         b = b.unsqueeze(2)
         # params = [p, f, a, b]
 
-        # x = a * torch.sin(self.tpi * (f * self.args + p)) + b
+        x = a * torch.sin(self.tpi * (f * self.args + p)) + b
 
-        # # signal = x
-        # # x = x.permute(0, 2, 1)
-        # # x, _ = self.rnn_output(x)
-        # # x = x.permute(0, 2, 1)
+        # signal = x
+        # x = x.permute(0, 2, 1)
+        # x, _ = self.rnn_output(x)
+        # x = x.permute(0, 2, 1)
 
-        # x = self.deconv1(x)
-        # x = x.reshape(x.shape[0], -1)
-        # x = self.denorm1(x)
-        # x = x.reshape(x.shape[0], self.intermediate_dims, self.seq_len)
-        # x = self.elu2(x)
-        # x = self.deconv2(x)
+        x = self.deconv1(x)
+        x = x.reshape(x.shape[0], -1)
+        x = self.denorm1(x)
+        x = x.reshape(x.shape[0], self.intermediate_dims, self.seq_len)
+        x = self.elu2(x)
+        x = self.deconv2(x)
 
-        # x = x[:, :, -1].reshape(x.shape[0], -1)
+        x = x[:, :, -1].reshape(x.shape[0], -1)
 
         return x
 
