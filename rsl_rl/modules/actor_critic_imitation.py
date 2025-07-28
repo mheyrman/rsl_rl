@@ -64,6 +64,9 @@ class ImitationAgent(nn.Module):
 
         print("ADDITIONAL DIM:" + str(additional_dim))
 
+        ##########################
+        ########## MDME ##########
+        ##########################
 
         self.phase_enc = utils.WaveletEncoder(
             self.num_reference_obs,
@@ -87,11 +90,15 @@ class ImitationAgent(nn.Module):
         # self.obs_enc = utils.GRUBlock(self.num_reference_obs, encoder_hidden_dims[2], 128)
         # self.obs_enc = utils.TransformerEncoder(self.num_reference_obs, encoder_hidden_dims[-1])
 
-        # !!!!!!! REF PAE !!!!!!!!
-        # self.pae_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1], seq_len=25)
+        ##########################
+        ########## PAE ###########
+        ##########################
+        # self.pae_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1], seq_len=5)
         # mlp_input_dim = encoder_hidden_dims[-1] + state_obs_dim
 
-        # !!!!!!! REF VMP !!!!!!!
+        #########################
+        ########## VMP ##########
+        #########################
         # self.vmp_enc = utils.GaussianEncoderBlock(
         #     self.num_reference_obs,
         #     encoder_hidden_dims[-1],
@@ -136,6 +143,10 @@ class ImitationAgent(nn.Module):
             print("[INFO] Inf detected in input, replacing with 1e5")
             x[torch.isinf(x)] = 1e5
 
+        ##########################
+        ########## MDME ##########
+        ##########################
+
         # split reference obs and obs, pass reference obs through encoder, concatenate with obs and pass through policy
         ref_obs, obs = torch.split(x, [self.num_reference_obs, x.size(1) - self.num_reference_obs], dim=1)
         periodic_out = self.phase_enc(ref_obs)
@@ -148,6 +159,8 @@ class ImitationAgent(nn.Module):
         x = torch.cat([enc_obs, last_ref, obs], dim=1)
 
         ##########################
+        ########## PAE ###########
+        ##########################
 
         # ref_obs, obs = torch.split(x, [self.num_reference_obs, x.size(1) - self.num_reference_obs], dim=1)
         # pae_out = self.pae_enc(ref_obs)
@@ -155,9 +168,11 @@ class ImitationAgent(nn.Module):
         # x = torch.cat([pae_out, obs], dim=1)
 
         #########################
+        ########## VMP ##########
+        #########################
 
         # ref_obs, obs = torch.split(x, [self.num_reference_obs, x.size(1) - self.num_reference_obs], dim=1)
-        # vmp_out = self.vmp_enc(rezf_obs)
+        # vmp_out = self.vmp_enc(ref_obs)
         # last_ref = ref_obs[:, -self.ref_obs_per_step:]
         # enc_obs = torch.cat([vmp_out, last_ref], dim=1)
         # x = torch.cat([enc_obs, obs], dim=1)
