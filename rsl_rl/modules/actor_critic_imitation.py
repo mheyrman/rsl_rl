@@ -60,6 +60,9 @@ class ImitationAgent(nn.Module):
         
         print("[INFO] DWT size: ", dwt_size)
         mlp_input_dim = state_obs_dim + dwt_size + encoder_hidden_dims[-1] + self.ref_obs_per_step
+        # mlp_input_dim = state_obs_dim + dwt_size + encoder_hidden_dims[-1]
+        # mlp_input_dim = state_obs_dim + dwt_size + self.ref_obs_per_step
+
         # mlp_input_dim = state_obs_dim + encoder_hidden_dims[-1] + self.ref_obs_per_step
 
         print("ADDITIONAL DIM:" + str(additional_dim))
@@ -82,6 +85,7 @@ class ImitationAgent(nn.Module):
         #     latent_channels=self.latent_channels,
         #     horizon=self.horizon,
         # )
+        # mlp_input_dim = state_obs_dim + 4 * self.latent_channels + encoder_hidden_dims[-1] + self.ref_obs_per_step
         self.obs_enc = utils.GaussianEncoderBlock(
             self.num_reference_obs,
             encoder_hidden_dims[-1],
@@ -93,7 +97,7 @@ class ImitationAgent(nn.Module):
         ##########################
         ########## PAE ###########
         ##########################
-        # self.pae_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1], seq_len=5)
+        # self.pae_enc = utils.PAE(self.num_reference_obs, encoder_hidden_dims[-1], seq_len=25)
         # mlp_input_dim = encoder_hidden_dims[-1] + state_obs_dim
 
         #########################
@@ -157,6 +161,8 @@ class ImitationAgent(nn.Module):
         # concat encodings
         enc_obs = torch.cat([periodic_out, enc_out], dim=1)
         x = torch.cat([enc_obs, last_ref, obs], dim=1)
+        # enc_obs = torch.cat([periodic_out], dim=1)
+        # x = torch.cat([enc_obs, last_ref, obs], dim=1)
 
         ##########################
         ########## PAE ###########
